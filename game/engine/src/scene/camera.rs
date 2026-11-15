@@ -118,9 +118,9 @@ macro_rules! camera_record {
             fn write(&self, w: &mut dyn crate::Writer) {
                 w.begin_struct();
                 $(w.field(stringify!($field)); self.$field.write(w);)*
-                if let Some(fov) = self.viewmodel_fov_y_degrees {
+                if self.viewmodel_fov_y_degrees.is_some() {
                     w.field("viewmodel_fov_y_degrees");
-                    fov.write(w);
+                    self.viewmodel_fov_y_degrees.write(w);
                 }
                 if self.shift.to_array().map(f32::to_bits) != [0; 2] {
                     w.field("shift");
