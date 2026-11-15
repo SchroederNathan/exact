@@ -28,6 +28,9 @@ impl Camera {
             && self.far.is_finite()
             && self.near > 0.
             && self.far > self.near
+            && self
+                .viewmodel_fov_y_degrees
+                .is_none_or(|fov| fov.is_finite() && fov > 0. && fov < 180.)
             && match self.projection {
                 Projection::Perspective => self.fov_y_degrees > 0. && self.fov_y_degrees < 180.,
                 Projection::Orthographic { height, .. } => height.is_finite() && height > 0.,
@@ -86,6 +89,21 @@ impl Camera {
         }
         projection
     }
+
+    /// Projection used by entities marked [`ViewModel`], when opted in.
+    /// Orthographic cameras keep their authored projection because an FOV
+    /// override only has meaning for perspective views.
+    pub fn viewmodel_matrix(self, size: crate::Vec2) -> Option<glam::Mat4> {
+        let fov = self.viewmodel_fov_y_degrees?;
+        (self.projection == Projection::Perspective).then(|| {
+            glam::camera::rh::proj::directx::perspective(
+                fov.to_radians(),
+                size.x / size.y,
+                self.near,
+                self.far,
+            )
+        })
+    }
 }
 
 impl crate::Component for Camera {
@@ -100,6 +118,10 @@ macro_rules! camera_record {
             fn write(&self, w: &mut dyn crate::Writer) {
                 w.begin_struct();
                 $(w.field(stringify!($field)); self.$field.write(w);)*
+                if let Some(fov) = self.viewmodel_fov_y_degrees {
+                    w.field("viewmodel_fov_y_degrees");
+                    fov.write(w);
+                }
                 if self.shift.to_array().map(f32::to_bits) != [0; 2] {
                     w.field("shift");
                     self.shift.write(w);
@@ -110,6 +132,7 @@ macro_rules! camera_record {
                 let fields = [$(stringify!($field)),*];
                 let mut seen = [false; [$(stringify!($field)),*].len()];
                 let mut seen_shift = false;
+                let mut seen_viewmodel_fov = false;
                 r.begin_struct()?;
                 while let Some(field) = r.field()? {
                     if let Some(index) = fields.iter().position(|f| *f == field) {
@@ -117,6 +140,10 @@ macro_rules! camera_record {
                     }
                     match field.as_str() {
                         $(stringify!($field) => self.$field.read(r).map_err(|e| e.at(stringify!($field)))?,)*
+                        "viewmodel_fov_y_degrees" => {
+                            self.viewmodel_fov_y_degrees.read(r).map_err(|e| e.at("viewmodel_fov_y_degrees"))?;
+                            seen_viewmodel_fov = true;
+                        }
                         "shift" => {
                             self.shift.read(r).map_err(|e| e.at("shift"))?;
                             seen_shift = true;
@@ -130,11 +157,15 @@ macro_rules! camera_record {
                 if !seen_shift && r.complete() {
                     self.shift = crate::Vec2::ZERO;
                 }
+                if !seen_viewmodel_fov && r.complete() {
+                    self.viewmodel_fov_y_degrees = None;
+                }
                 Ok(())
             }
             fn set_field(&mut self, field: &str, text: &str) -> Result<(), crate::DataError> {
                 match field {
                     $(stringify!($field) => crate::data::edit_field(&mut self.$field, text),)*
+                    "viewmodel_fov_y_degrees" => crate::data::edit_field(&mut self.viewmodel_fov_y_degrees, text),
                     "shift" => crate::data::edit_field(&mut self.shift, text),
                     _ => Err(crate::DataError::new(format!("unknown field {field}"))),
                 }
