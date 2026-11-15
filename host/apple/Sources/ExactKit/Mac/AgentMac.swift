@@ -1060,6 +1060,12 @@ extension Agent {
             guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: repeats, keyCode: code),
                   let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: upModifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
             else { return ["error": "no key event"] }
+            // A lone modifier is AppKit's flagsChanged event, not a keyDown.
+            // Agent delivery bypasses NSApplication's local monitor, so build
+            // the same edge explicitly and route it through the target window
+            // after the session handlers have had their chance to prevent it.
+            let modifierDown = lone ? NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code) : nil
+            let modifierUp = lone ? NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: upModifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code) : nil
             // The release's `keyup` handlers at the focus then (#140), as the
             // monitor's route hears a keyboard's (`Presenter.keyUp`).
             // A chord's modifiers are their own keys around it (Charlie, 2026-10-07;
@@ -1091,8 +1097,17 @@ extension Agent {
             // `key` handlers (a prevented key goes no further), then the menus'
             // and dialogs' defaults.
             // Each modifier's own keydown first (a held key's repeat finds them down).
-            if phase != "up", !repeats { for m in modifierKeys { _ = presenter.routeKey(m.down, focused: true, in: win) } }
-            if phase != "up", presenter.routeKey(down, focused: true, in: win) {
+            var downTaken = false
+            if lone {
+                if phase != "up", !repeats, let modifierDown {
+                    downTaken = presenter.routeKey(modifierDown, focused: true, in: win)
+                    if !downTaken { win.sendEvent(modifierDown) }
+                }
+            } else if phase != "up", !repeats {
+                for m in modifierKeys { _ = presenter.routeKey(m.down, focused: true, in: win) }
+            }
+            if !lone, phase != "up" { downTaken = presenter.routeKey(down, focused: true, in: win) }
+            if downTaken {
                 if phase != "down" { heardUp(); _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
@@ -1132,12 +1147,23 @@ extension Agent {
                 return ["typed": Int(v.id), "key": chord]
             }
             if phase != "up", !lone { win.sendEvent(down) }
-            if phase != "down" { heardUp() }
+            if phase != "down" {
+                if lone, let modifierUp { presenter.keyUp(modifierUp, in: win) }
+                else { heardUp() }
+            }
             if phase != "down", !lone { win.sendEvent(up) }
+            if lone, phase != "down", let modifierUp {
+                win.sendEvent(modifierUp)
+            }
             if phase == "down", let token = req["releaseKey"] as? String {
-                keyReleases[token] = { [weak v] in
-                    heardUp()
-                    v?.keyUp(with: up)
+                keyReleases[token] = { [weak presenter, weak win, weak v] in
+                    if lone, let modifierUp {
+                        presenter?.keyUp(modifierUp, in: win)
+                        if let win { win.sendEvent(modifierUp) }
+                    } else {
+                        heardUp()
+                        v?.keyUp(with: up)
+                    }
                     return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
                 }
             }
