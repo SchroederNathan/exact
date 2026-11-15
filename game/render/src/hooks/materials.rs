@@ -37,10 +37,34 @@ pub struct MaterialGpu<'a> {
     pub(crate) pipelines: &'a crate::pipeline::Pipelines,
     pub(crate) instance: &'a wgpu::BindGroupLayout,
 }
+
+/// A loaded texture borrowed from the renderer for one hook callback.
+///
+/// Hooks may bind the view for their own passes, but the renderer retains
+/// ownership and may replace it after the callback returns.
+pub struct TextureGpu<'a> {
+    /// The renderer-owned view.
+    pub view: &'a wgpu::TextureView,
+    /// Logical dimensions of mip level zero.
+    pub size: [u32; 2],
+    /// Stable content digest used to rebuild a hook bind group after redelivery.
+    pub digest: u64,
+}
+
 impl MaterialGpu<'_> {
     /// Resolve a loaded model's stable material handle.
     pub fn material(&self, model: &str, index: usize) -> Option<MaterialId> {
         self.models.loaded.get(model)?.materials.get(index).copied()
+    }
+
+    /// Resolve a resident texture by its declared asset name.
+    pub fn texture(&self, name: &str) -> Option<TextureGpu<'_>> {
+        let texture = self.models.textures.get(name)?;
+        Some(TextureGpu {
+            view: &texture.view,
+            size: texture.size,
+            digest: texture.digest,
+        })
     }
     /// Build a double-sided opaque pipeline over engine vertices and unskinned
     /// instances. Shadow entry points use group 1 binding 0, a light-view matrix.
