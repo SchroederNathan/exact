@@ -331,6 +331,42 @@ pub struct Voice {
     pub spatial: Option<Spatial>,
 }
 impl Voice {
+    /// Construct a resident one-shot voice with the same timing state as
+    /// [`World::play`]. Games that stage audio transactions can use this
+    /// constructor without reaching into the executor's integrated pitch
+    /// bookkeeping.
+    pub fn new(
+        id: VoiceId,
+        sound: impl Into<String>,
+        at: At,
+        gain: f32,
+        pitch: f32,
+        definition: Definition,
+        began: u64,
+        hz: u32,
+    ) -> Self {
+        let pitch = playback_rate(pitch);
+        let mut voice = Self {
+            id,
+            sound: sound.into(),
+            at,
+            gain,
+            pitch,
+            integrated_pitch: pitch,
+            playback: None,
+            position: None,
+            definition,
+            began,
+            ends: 0,
+            offset: 0.0,
+            pan: 0.0,
+            fade: None,
+            spatial: None,
+        };
+        voice.ends = voice.source_end(began, hz);
+        voice
+    }
+
     fn source_end(&self, now: u64, hz: u32) -> u64 {
         if self.looping() {
             return u64::MAX;
@@ -643,23 +679,16 @@ impl World {
             .unwrap_or_else(|| panic!("unknown sound `{sound}`"));
         Play {
             world: self,
-            voice: Voice {
-                sound: sound.into(),
-                at: At::Ui,
-                gain: 1.0,
-                pitch: 1.0,
-                integrated_pitch: 1.0,
-                playback: None,
-                position: None,
+            voice: Voice::new(
+                0,
+                sound,
+                At::Ui,
+                1.0,
+                1.0,
                 definition,
-                began: self.audio_boundary(),
-                ends: 0,
-                id: 0,
-                offset: 0.0,
-                pan: 0.0,
-                fade: None,
-                spatial: None,
-            },
+                self.audio_boundary(),
+                self.hz(),
+            ),
         }
     }
 }
