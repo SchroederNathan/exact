@@ -218,6 +218,7 @@ impl Placements {
                 &FrameInput {
                     view,
                     proj: camera.value.matrix(size),
+                    viewmodel_proj: camera.value.viewmodel_matrix(size),
                     alpha,
                     attachments: &attachments.output,
                     ..Default::default()

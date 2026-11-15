@@ -459,6 +459,7 @@ impl Scene {
             )
             .inverse(),
             proj: camera.matrix(size),
+            viewmodel_proj: camera.viewmodel_matrix(size),
             camera_position: camera_pose.position,
             alpha,
             sun,
