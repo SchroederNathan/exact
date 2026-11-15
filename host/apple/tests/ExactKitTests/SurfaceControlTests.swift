@@ -395,6 +395,37 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(controlEvents.isEmpty, "a prevented key goes no further")
         withExtendedLifetime(window) {}
     }
+    func testAgentCanvasModifierEdgesUseFlagsAndKeepSideIdentity() {
+        let (s, canvas, _) = fixture(); defer { s.destroy() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = s.presenter.viewport
+        XCTAssertTrue(canvas.focusSurfacePointer())
+        XCTAssertTrue(window.firstResponder === canvas)
+        let agent = s.agentInstance
+        controlEvents = []
+        for code in ["ControlLeft", "ControlRight"] {
+            XCTAssertNil(agent.type(["id": 100, "key": code, "phase": "down"])["error"])
+            XCTAssertNil(agent.type(["id": 100, "key": code, "phase": "up"])["error"])
+        }
+        let edges = controlEvents.filter { $0["t"] as? String == "key" }
+        XCTAssertEqual(edges.map { edge in
+            let code = edge["code"] as? String ?? ""
+            let phase = edge["down"] as? Bool == true ? "down" : "up"
+            return code + " " + phase
+        }, [
+            "ControlLeft down", "ControlLeft up", "ControlRight down", "ControlRight up",
+        ])
+
+        controlEvents = []
+        var prevent = true
+        s.presenter.onKey = { _, _ in if prevent { s.presenter.defaultPrevented = true } }
+        XCTAssertNil(agent.type(["id": 100, "key": "ControlLeft"])["error"])
+        XCTAssertTrue(controlEvents.isEmpty, "a prevented modifier does not reach the canvas")
+        prevent = false
+        XCTAssertNil(agent.type(["id": 100, "key": "ControlLeft"])["error"])
+        XCTAssertEqual(controlEvents.filter { $0["t"] as? String == "key" }.count, 2)
+        withExtendedLifetime(window) {}
+    }
     func testAgentCancelClearsMouseContact() {
         let (s,_,_) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
