@@ -1106,7 +1106,12 @@ extension Agent {
             } else if phase != "up", !repeats {
                 for m in modifierKeys { _ = presenter.routeKey(m.down, focused: true, in: win) }
             }
-            if !lone, phase != "up" { downTaken = presenter.routeKey(down, focused: true, in: win) }
+            // Repeated lone modifiers retain the existing keyDown route. A
+            // first edge uses flagsChanged so the canvas sees its physical
+            // side; repeats are still handler-only, as before.
+            if phase != "up", (!lone || repeats) {
+                downTaken = presenter.routeKey(down, focused: true, in: win)
+            }
             if downTaken {
                 if phase != "down" { heardUp(); _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
