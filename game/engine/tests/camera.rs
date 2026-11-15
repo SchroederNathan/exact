@@ -76,6 +76,20 @@ fn image_shift_is_depth_and_aspect_independent_and_keeps_zero_records() {
     }
 }
 
+#[test]
+fn viewmodel_fov_round_trips_through_binary_and_json_saves() {
+    let camera = Camera {
+        fov_y_degrees: 110.0,
+        viewmodel_fov_y_degrees: Some(70.0),
+        ..Camera::default()
+    };
+    let bytes = bin::to_vec(&camera);
+    assert_eq!(bin::from_slice::<Camera>(&bytes).unwrap(), camera);
+    let mut overlay = Camera::default();
+    json::read_into("{\"viewmodel_fov_y_degrees\":[70]}", &mut overlay).unwrap();
+    assert_eq!(overlay.viewmodel_fov_y_degrees, Some(70.0));
+}
+
 #[derive(Default, Args)]
 struct Settings {
     #[live]
