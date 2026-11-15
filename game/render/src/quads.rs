@@ -869,7 +869,8 @@ impl Quads {
                 let y = up * (s.size.y * t.y_axis.truncate().length());
                 let center = t.w_axis.truncate() + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
                 let radius = 0.5 * (x.length_squared() + y.length_squared()).sqrt();
-                if cull && !item.viewmodel && !crate::cull::sphere_visible(&camera, center, radius) {
+                if cull && !item.viewmodel && !crate::cull::sphere_visible(&camera, center, radius)
+                {
                     if let Some(seen) = &mut self.observed {
                         seen.push((item.entity, QuadFact::Culled, t, true));
                     }

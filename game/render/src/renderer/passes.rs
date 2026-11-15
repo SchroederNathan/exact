@@ -279,13 +279,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.probe_stage(Stage::Occluders);
         for &(index, offset) in &occlusion.groups {
             pass.set_bind_group(1, &occlusion.uniforms_bind, &[offset]);
-            self.draw_group(
-                &mut pass,
-                &mut bound,
-                0,
-                index,
-                false,
-            );
+            self.draw_group(&mut pass, &mut bound, 0, index, false);
         }
         drop(pass);
         occlusion.reduce(encoder);
