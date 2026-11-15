@@ -33,6 +33,19 @@ fn journal_lifetime_state_and_listener_refusal() {
     step(&mut w);
     assert!(w.resource::<Voices>().voices.is_empty());
 }
+
+#[test]
+fn resident_voice_constructor_preserves_playback_timing() {
+    let definition = Definition::new(Synth::sine(880.0).seconds(0.25));
+    let voice = Voice::new(7, "chime", At::Ui, 0.8, 2.0, definition, 11, 60);
+    assert_eq!(voice.id, 7);
+    assert_eq!(voice.began, 11);
+    assert_eq!(voice.pitch, 2.0);
+    assert_eq!(voice.integrated_pitch, 2.0);
+    assert_eq!(voice.ends, 19);
+    assert_eq!(voice.playback, None);
+}
+
 #[test]
 #[should_panic(expected = "unknown sound `missing`")]
 fn unknown_sound_names_itself() {
