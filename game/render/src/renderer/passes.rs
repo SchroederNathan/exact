@@ -73,6 +73,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         bound: &mut Bound<'a>,
         view: u32,
         group: usize,
+        viewmodel: bool,
     ) {
         let began = self.probe_begin(pass, || Drew::Group {
             group,
@@ -81,7 +82,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         });
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
-            bound.scene(pass, &self.scene_binds[self.current], 0);
+            bound.scene(
+                pass,
+                if viewmodel {
+                    &self.viewmodel_scene_binds[self.current]
+                } else {
+                    &self.scene_binds[self.current]
+                },
+                0,
+            );
             bound.flush(pass);
             pass.draw_indexed(
                 mesh.indices.clone(),
@@ -90,7 +99,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
         } else {
             let (offset, draw) = self.cull.draw(view, group);
-            bound.scene(pass, &self.culled_binds[self.current], offset);
+            bound.scene(
+                pass,
+                if viewmodel {
+                    &self.viewmodel_culled_binds[self.current]
+                } else {
+                    &self.culled_binds[self.current]
+                },
+                offset,
+            );
             bound.indirect(pass, &self.cull.indirect.raw, draw);
         }
         Probe::end(pass, began);
@@ -101,10 +118,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         pass: &mut wgpu::RenderPass<'_>,
         bound: &mut Bound<'a>,
         group: usize,
+        viewmodel: bool,
     ) {
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
-            bound.scene(pass, &self.scene_binds[self.current], 0);
+            bound.scene(
+                pass,
+                if viewmodel {
+                    &self.viewmodel_scene_binds[self.current]
+                } else {
+                    &self.scene_binds[self.current]
+                },
+                0,
+            );
             pass.draw_indexed(
                 mesh.indices.clone(),
                 0,
@@ -112,7 +138,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
         } else {
             let (region, _) = self.cull.draw(0, group);
-            bound.scene(pass, &self.culled_binds[self.current], region);
+            bound.scene(
+                pass,
+                if viewmodel {
+                    &self.viewmodel_culled_binds[self.current]
+                } else {
+                    &self.culled_binds[self.current]
+                },
+                region,
+            );
             pass.draw_indexed_indirect(&self.cull.indirect.raw, self.cull.hull_draw(group));
         }
     }
@@ -167,7 +201,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                             &shadows.cameras[i],
                             custom,
                         );
-                        self.draw_group(&mut pass, &mut bound, view, index);
+                        self.draw_group(&mut pass, &mut bound, view, index, false);
                         draws += 1;
                     }
                     bound.flush(&mut pass);
@@ -207,7 +241,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     continue;
                 }
                 self.set_depth_pipeline(&mut pass, &mut bound, group, &shadows.cameras[i], custom);
-                self.draw_group(&mut pass, &mut bound, view, index);
+                self.draw_group(&mut pass, &mut bound, view, index, false);
                 draws += 1;
             }
             bound.flush(&mut pass);
@@ -245,7 +279,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.probe_stage(Stage::Occluders);
         for &(index, offset) in &occlusion.groups {
             pass.set_bind_group(1, &occlusion.uniforms_bind, &[offset]);
-            self.draw_group(&mut pass, &mut bound, 0, index);
+            self.draw_group(
+                &mut pass,
+                &mut bound,
+                0,
+                index,
+                false,
+            );
         }
         drop(pass);
         occlusion.reduce(encoder);
@@ -440,7 +480,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.scene_viewport(&mut pass, state.size, viewmodel);
                 layer = viewmodel;
             }
-            self.draw_group(&mut pass, &mut bound, 0, index);
+            self.draw_group(
+                &mut pass,
+                &mut bound,
+                0,
+                index,
+                self.batches[group.batch].viewmodel,
+            );
         }
         bound.flush(&mut pass);
         drop(bound);
@@ -450,12 +496,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         for (index, _) in
             (self.quads.draws.iter().enumerate()).filter(|(_, d)| self.quads.opaque(d))
         {
+            let viewmodel = self.quads.draw_viewmodel(&self.quads.draws[index]);
+            if viewmodel != layer {
+                self.scene_viewport(&mut pass, state.size, viewmodel);
+                layer = viewmodel;
+            }
             let pipeline =
                 (self.quads).bind::<ASSETS>(&mut pass, index, &self.models.textures, state.direct);
             let began = self.probe_begin(&mut pass, || self.quads.record(index, pipeline));
             self.quads.submit(&mut pass, index);
             Probe::end(&mut pass, began);
             state.draws += 1;
+        }
+        if layer {
+            self.scene_viewport(&mut pass, state.size, false);
         }
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
@@ -781,7 +835,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     draw.kind,
                     crate::quads::Kind::Particle(_, _, _, true)
                         | crate::quads::Kind::Primitive(true)
-                );
+                )
+                || self.quads.draw_viewmodel(draw);
             if viewmodel != layer {
                 self.scene_viewport(pass, size, viewmodel);
                 layer = viewmodel;
@@ -795,7 +850,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let key = model_frame.blended(material, mirrored);
                 self.probe_variant(key);
                 pass.set_pipeline(self.pipelines.model_variant(&self.device, key, false));
-                pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
+                pass.set_bind_group(
+                    0,
+                    if batch.viewmodel {
+                        &self.viewmodel_scene_binds[self.current]
+                    } else {
+                        &self.scene_binds[self.current]
+                    },
+                    &[0],
+                );
                 pass.set_bind_group(1, &self.shadow_sample, &[]);
                 pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
