@@ -310,6 +310,5 @@ final class CanvasPointerMacTests: XCTestCase {
         input.unlock()
         withExtendedLifetime(window) {}
     }
-
 }
 #endif
