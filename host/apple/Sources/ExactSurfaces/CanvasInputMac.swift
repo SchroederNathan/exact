@@ -161,8 +161,15 @@ final class CanvasInputHost {
         let point = view.local(windowPoint(event, view))
         // Locked, the cursor stays put and the motion is the device's (unbounded
         // by the window or screen edge); otherwise it is the position's change.
+        // AppKit's synthetic `NSEvent.mouseEvent` has no device delta. When an
+        // agent drives a locked canvas, its event location is the requested
+        // movement, so preserve that movement as a fallback. Real locked
+        // events keep the cursor fixed and therefore produce zero here.
         let moved = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged].contains(event.type)
-        let (dx, dy) = !moved ? (0, 0) : locked ? (event.deltaX, event.deltaY) : last.map { (point.x - $0.x, point.y - $0.y) } ?? (0, 0)
+        let previous = last
+        let (dx, dy) = !moved ? (0, 0) : locked
+            ? (event.deltaX == 0 && event.deltaY == 0 ? previous.map { (point.x - $0.x, point.y - $0.y) } ?? (0, 0) : (event.deltaX, event.deltaY))
+            : previous.map { (point.x - $0.x, point.y - $0.y) } ?? (0, 0)
         last = point
         let fields: [String: Any] = ["t": "pointer", "phase": phase, "id": 1, "x": point.x, "y": point.y, "dx": dx, "dy": dy, "kind": "mouse", "buttons": buttons]
         view.canvases?.input(view, fields.merging(Self.held(event.modifierFlags)) { $1 }, timestamp: event.timestamp)
